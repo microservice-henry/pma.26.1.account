@@ -7,8 +7,6 @@ import java.util.Base64;
 import java.util.List;
 import java.util.stream.StreamSupport;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -17,72 +15,51 @@ import org.springframework.web.server.ResponseStatusException;
 @Service
 public class AccountService {
 
-    private Logger looger = LoggerFactory.getLogger(AccountService.class);
-
     @Autowired
     private AccountRepository accountRepository;
 
     public Account create(Account account) {
-        if (null == account.password()) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
-                "Password is mandatory!"
-            );
-        }
-        // clean special caracters
-        account.password(account.password().trim());
-        if (account.password().length() < 4) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
-                "Password is too short!"
-            );
-        }
-        if (null == account.email()) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
-                "Email is mandatory!"
-            );
+
+        if (account.password() == null || account.password().trim().length() == 0) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Password is empty");
         }
 
-        if (accountRepository.findByEmail(account.email()) != null)
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
-                "Email already have been registered!"
-            );
-
-        account.sha256(hash(account.password()));
+        account.passwordSha256(calcHash(account.password()));
 
         return accountRepository.save(
             new AccountModel(account)
         ).to();
     }
 
-    public List<Account> findAll() {
-        return StreamSupport.stream(
-            accountRepository.findAll().spliterator(), false)
-            .map(AccountModel::to)
-            .toList();
+    public void delete(String id) {
+        accountRepository.deleteById(id);
     }
 
     public Account findById(String id) {
-        return accountRepository.findById(id).map(AccountModel::to).orElse(null);
+        return accountRepository.findById(id).orElse(null).to();
+    }
+
+    public List<Account> findByAll() {
+        return StreamSupport.stream(
+            accountRepository.findAll().spliterator(),
+            false // transform from stream to list
+        ).map(AccountModel::to) // parser from Model to Account
+        .toList();
     }
 
     public Account findByEmailAndPassword(String email, String password) {
-        String sha256 = hash(password);
-        return accountRepository.findByEmailAndSha256(email, sha256).map(AccountModel::to).orElse(null);
+        String sha256 = calcHash(password);
+        return accountRepository.findByEmailAndPasswordSha256(email, sha256).orElse(null).to();
     }
 
-    public void delete(String id) {
-        accountRepository.delete(new AccountModel().id(id));
-    }
-
-    private String hash(String pass) {
-        looger.debug("calculing the hash");
+    private String calcHash(String text) {
         try {
-            MessageDigest digest = MessageDigest.getInstance("SHA-256");
-            byte[] encodedHash = digest.digest(
-                pass.getBytes(StandardCharsets.UTF_8)
-            );
-            return Base64.getEncoder().encodeToString(encodedHash);
+            MessageDigest md = MessageDigest.getInstance("SHA-256");
+            md.update(text.getBytes(StandardCharsets.UTF_8));
+            byte[] digest = md.digest();
+            return Base64.getEncoder().encodeToString(digest);
         } catch (NoSuchAlgorithmException e) {
-            throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, e.getMessage(), e);
+            throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, e.getMessage());
         }
     }
 
